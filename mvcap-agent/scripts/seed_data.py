@@ -730,10 +730,19 @@ SETTINGS = {
         None,
         "PENDING CLIENT: E.164 number that rings a human, e.g. +19375551234",
     ),
-    "pbx_transfer_template": (
+    "pbx_main_number": (
         None,
-        "PENDING M0 TEST: how an extension is dialed, e.g. "
-        "'tel:+19375551234;ext={ext}' or 'sip:{ext}@pbx.example.com'",
+        "PENDING CLIENT: main office number in E.164. Extension transfers dial this number, "
+        "wait pbx_dtmf_pause_seconds, then send the extension as keypad tones",
+    ),
+    "pbx_dtmf_pause_seconds": (
+        3,
+        "Seconds to wait after the main number answers before sending the extension",
+    ),
+    "transfer_override_number": (
+        None,
+        "TEST SWITCH: when set (E.164), every transfer rings this number instead of the real "
+        "target. Leave empty in production",
     ),
     "office_hours_statement": (
         "Hours of operation are Monday through Friday, 8:00 a.m. to 4:30 p.m., closed for lunch from "

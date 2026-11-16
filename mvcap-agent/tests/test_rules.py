@@ -279,3 +279,48 @@ def test_prompt_gives_the_real_office_hours_so_the_model_need_not_invent_them(ds
     prompt = build_instructions(ds)
     assert "8:00 a.m. to 4:30 p.m." in prompt and "12:00 p.m. to 1:00 p.m." in prompt
     assert "escalate_to_human" in prompt
+
+
+# ------------------------------------------------------------------ transfer dial plan
+def _plan_ds(**settings):
+    from dataset import Dataset
+
+    ds = Dataset()
+    ds.settings = settings
+    return ds
+
+
+def test_extension_dials_main_number_then_tones_after_pause():
+    from dataset import Target
+    from transfer import dial_plan
+
+    ds = _plan_ds(pbx_main_number="+15555550100", pbx_dtmf_pause_seconds=3)
+    assert dial_plan(ds, Target("extension", "157")) == ("+15555550100", "wwwwww157")
+
+
+def test_extension_cannot_be_dialed_without_main_number():
+    from dataset import Target
+    from transfer import dial_plan
+
+    assert dial_plan(_plan_ds(), Target("extension", "157")) is None
+
+
+def test_override_number_redirects_every_transfer():
+    from dataset import Target
+    from transfer import dial_plan
+
+    ds = _plan_ds(
+        transfer_override_number="+15555550199", pbx_main_number="+15555550100"
+    )
+    assert dial_plan(ds, Target("phone", "+19375550123")) == ("+15555550199", None)
+    assert dial_plan(ds, Target("extension", "157"))[0] == "+15555550199"
+
+
+def test_direct_phone_is_dialed_without_tones():
+    from dataset import Target
+    from transfer import dial_plan
+
+    assert dial_plan(_plan_ds(), Target("phone", "+19375550123")) == (
+        "+19375550123",
+        None,
+    )

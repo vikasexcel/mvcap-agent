@@ -17,7 +17,7 @@ from livekit.agents import (
     inference,
     room_io,
 )
-from livekit.plugins import ai_coustics
+from livekit.plugins import ai_coustics, google
 
 import people
 from dataset import Dataset, Target
@@ -29,11 +29,35 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Models are switchable by environment variable while we tune latency and voice.
-LLM_MODEL = os.environ.get("MVCAP_LLM", "google/gemini-3.5-flash")
+# Models are switchable by environment variable while we tune latency and voice. With a
+# GOOGLE_API_KEY (the client's own account) the LLM and voice run on it; without one they fall
+# back to LiveKit Inference so local development still works.
+LLM_MODEL = os.environ.get("MVCAP_LLM", "gemini-3.8-flash")
 STT_MODEL = os.environ.get("MVCAP_STT", "assemblyai/universal-3-6-pro")
-TTS_MODEL = os.environ.get("MVCAP_TTS", "fishaudio/s2.1-pro")
-TTS_VOICE = os.environ.get("MVCAP_TTS_VOICE", "fa4c9eb3dccc4806b382b40d61c6b10a")
+TTS_MODEL = os.environ.get("MVCAP_TTS", "gemini-3.8-flash-tts")
+TTS_VOICE = os.environ.get("MVCAP_TTS_VOICE", "Erinome")  # chosen by the client
+TTS_STYLE = (
+    "Speak in a calm, warm, unhurried voice, like a kind receptionist. "
+    "Say exactly the given words and add nothing."
+)
+INFERENCE_LLM = "google/gemini-3.5-flash"
+INFERENCE_TTS = "fishaudio/s2.1-pro"
+INFERENCE_VOICE = "fa4c9eb3dccc4806b382b40d61c6b10a"
+
+
+def build_llm():
+    if os.environ.get("GOOGLE_API_KEY"):
+        return google.LLM(model=LLM_MODEL)
+    return inference.LLM(model=INFERENCE_LLM)
+
+
+def build_tts():
+    if os.environ.get("GOOGLE_API_KEY"):
+        return google.beta.GeminiTTS(
+            model=TTS_MODEL, voice_name=TTS_VOICE, instructions=TTS_STYLE
+        )
+    return inference.TTS(model=INFERENCE_TTS, voice=INFERENCE_VOICE)
+
 
 STT_KEYTERM_LIMIT = 100  # unverified provider limit: confirm on a live call
 
@@ -113,7 +137,7 @@ def stt_keyterms(ds: Dataset) -> list[str]:
 class Receptionist(Agent):
     def __init__(self, ds: Dataset) -> None:
         super().__init__(
-            llm=inference.LLM(model=LLM_MODEL),
+            llm=build_llm(),
             instructions=build_instructions(ds),
         )
         self.ds = ds
@@ -296,7 +320,7 @@ async def my_agent(ctx: JobContext):
             keyterms=stt_keyterms(ds),
             keyterm_detection={"enabled": True},
         ),
-        tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
+        tts=build_tts(),
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
             # Off on purpose: the tools transfer and hang up, so no speculative responses.
