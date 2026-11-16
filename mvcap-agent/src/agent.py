@@ -4,10 +4,12 @@ import os
 import textwrap
 
 from dotenv import load_dotenv
+from google.genai import types as genai_types
 from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
+    ConversationItemAddedEvent,
     JobContext,
     RunContext,
     STTContextOptions,
@@ -15,6 +17,7 @@ from livekit.agents import (
     cli,
     function_tool,
     inference,
+    llm,
     room_io,
 )
 from livekit.plugins import ai_coustics, google
@@ -32,12 +35,17 @@ load_dotenv(".env.local")
 # Models are switchable by environment variable while we tune latency and voice. With a
 # GOOGLE_API_KEY (the client's own account) the LLM and voice run on it; without one they fall
 # back to LiveKit Inference so local development still works.
-LLM_MODEL = os.environ.get("MVCAP_LLM", "gemini-3.8-flash")
+# gemini-3.8-flash took 4 to 6 s to its first token on our prompt; 3.5-flash with minimal thinking
+# took about 2 s (benchmarked 2026-11-16).
+LLM_MODEL = os.environ.get("MVCAP_LLM", "gemini-3.5-flash")
+LLM_THINKING = os.environ.get("MVCAP_LLM_THINKING", "MINIMAL")  # empty = model default
+# Gemini rejects request deadlines under 10 s; past this the Inference model answers instead.
+LLM_ATTEMPT_TIMEOUT_SECONDS = 10.0
 STT_MODEL = os.environ.get("MVCAP_STT", "assemblyai/universal-3-6-pro")
 TTS_MODEL = os.environ.get("MVCAP_TTS", "gemini-3.8-flash-tts")
 TTS_VOICE = os.environ.get("MVCAP_TTS_VOICE", "Erinome")  # chosen by the client
 TTS_STYLE = (
-    "Speak in a calm, warm, unhurried voice, like a kind receptionist. "
+    "Speak in a warm, friendly voice at a natural, conversational pace, like a kind receptionist. "
     "Say exactly the given words and add nothing."
 )
 INFERENCE_LLM = "google/gemini-3.5-flash"
@@ -46,9 +54,22 @@ INFERENCE_VOICE = "fa4c9eb3dccc4806b382b40d61c6b10a"
 
 
 def build_llm():
-    if os.environ.get("GOOGLE_API_KEY"):
-        return google.LLM(model=LLM_MODEL)
-    return inference.LLM(model=INFERENCE_LLM)
+    if not os.environ.get("GOOGLE_API_KEY"):
+        return inference.LLM(model=INFERENCE_LLM)
+    thinking = (
+        genai_types.ThinkingConfig(thinking_level=LLM_THINKING)
+        if LLM_THINKING
+        else None
+    )
+    primary = google.LLM(
+        model=LLM_MODEL,
+        **({"thinking_config": thinking} if thinking else {}),
+    )
+    # The client's Gemini key can time out or run out of credit mid-call; fall back to Inference.
+    return llm.FallbackAdapter(
+        [primary, inference.LLM(model=INFERENCE_LLM)],
+        attempt_timeout=LLM_ATTEMPT_TIMEOUT_SECONDS,
+    )
 
 
 def build_tts():
@@ -327,6 +348,13 @@ async def my_agent(ctx: JobContext):
             preemptive_generation={"enabled": False},
         ),
     )
+
+    @session.on("conversation_item_added")
+    def _log_turn_metrics(event: ConversationItemAddedEvent) -> None:
+        # Per-turn latency (LLM first token, TTS first audio, end-to-end) for tuning pauses.
+        metrics = getattr(event.item, "metrics", None)
+        if metrics:
+            logger.info("turn metrics role=%s %s", event.item.role, dict(metrics))
 
     await session.start(
         agent=Receptionist(ds),
