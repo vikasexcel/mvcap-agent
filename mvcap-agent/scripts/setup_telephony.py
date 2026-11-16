@@ -55,6 +55,14 @@ async def main(apply: bool) -> None:
         return
     lk = api.LiveKitAPI()
     try:
+        # Another project's trunk may already own this number; never create a clash.
+        existing = await lk.sip.list_inbound_trunk(api.ListSIPInboundTrunkRequest())
+        for trunk in existing.items:
+            if number in trunk.numbers:
+                sys.exit(
+                    f"{number} already belongs to inbound trunk {trunk.sip_trunk_id} "
+                    f"({trunk.name}). Not creating anything."
+                )
         inb = await lk.sip.create_inbound_trunk(
             api.CreateSIPInboundTrunkRequest(trunk=inbound)
         )
