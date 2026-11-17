@@ -19,8 +19,9 @@ from livekit.agents import (
     inference,
     llm,
     room_io,
+    tts,
 )
-from livekit.plugins import ai_coustics, google
+from livekit.plugins import ai_coustics, elevenlabs, google
 
 import people
 from dataset import Dataset, Target
@@ -42,6 +43,9 @@ LLM_THINKING = os.environ.get("MVCAP_LLM_THINKING", "MINIMAL")  # empty = model 
 # Gemini rejects request deadlines under 10 s; past this the Inference model answers instead.
 LLM_ATTEMPT_TIMEOUT_SECONDS = 10.0
 STT_MODEL = os.environ.get("MVCAP_STT", "assemblyai/universal-3-6-pro")
+# Primary voice: ElevenLabs on the client's account (about 0.2 s to first audio against about
+# 1 s for Gemini, benchmarked 2026-11-17). Erinome is the fallback and the voice without Eleven keys.
+ELEVEN_MODEL = os.environ.get("MVCAP_ELEVEN_MODEL", "eleven_flash_v2_5")
 TTS_MODEL = os.environ.get("MVCAP_TTS", "gemini-3.8-flash-tts")
 TTS_VOICE = os.environ.get("MVCAP_TTS_VOICE", "Erinome")  # chosen by the client
 TTS_STYLE = (
@@ -73,10 +77,19 @@ def build_llm():
 
 
 def build_tts():
+    gemini = None
     if os.environ.get("GOOGLE_API_KEY"):
-        return google.beta.GeminiTTS(
+        gemini = google.beta.GeminiTTS(
             model=TTS_MODEL, voice_name=TTS_VOICE, instructions=TTS_STYLE
         )
+    if os.environ.get("ELEVEN_API_KEY") and os.environ.get("ELEVEN_VOICE_ID"):
+        eleven = elevenlabs.TTS(
+            voice_id=os.environ["ELEVEN_VOICE_ID"], model=ELEVEN_MODEL
+        )
+        # If ElevenLabs fails mid-call the caller hears Erinome instead of silence.
+        return tts.FallbackAdapter([eleven, gemini] if gemini else [eleven])
+    if gemini:
+        return gemini
     return inference.TTS(model=INFERENCE_TTS, voice=INFERENCE_VOICE)
 
 

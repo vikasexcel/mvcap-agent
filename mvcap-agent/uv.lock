@@ -18,7 +18,7 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
-    { name = "livekit-agents", extra = ["google"] },
+    { name = "livekit-agents", extra = ["elevenlabs", "google"] },
     { name = "livekit-plugins-ai-coustics" },
     { name = "python-dotenv" },
     { name = "supabase", version = "2.33.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -35,7 +35,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "google-genai", specifier = ">=2.33,<3" },
-    { name = "livekit-agents", extras = ["google"], specifier = "~=1.8" },
+    { name = "livekit-agents", extras = ["elevenlabs", "google"], specifier = "~=1.8" },
     { name = "livekit-plugins-ai-coustics", specifier = "~=0.3" },
     { name = "python-dotenv" },
     { name = "supabase", specifier = ">=2.33.0" },
@@ -1492,6 +1492,14 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+codecs = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+elevenlabs = [
+    { name = "livekit-plugins-elevenlabs" },
+]
 google = [
     { name = "livekit-plugins-google" },
 ]
@@ -1593,6 +1601,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/75/7b/2a741357dc617c453252a3ae727333bbb81ae0655b16b8471604325690ee/livekit_plugins_ai_coustics-0.3.5-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:173548c9fcf4fd874cfaabd274e9c762a90ccc768b9ac1f4619ba2825913b6f6", size = 70358207, upload-time = "2026-10-19T23:09:08.765Z" },
     { url = "https://files.pythonhosted.org/packages/25/94/1825e84acfd721263c551aa49fd4738d94ab13953e1b68b9982b3e9fb99e/livekit_plugins_ai_coustics-0.3.5-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1ce1564f1c23770273783e224c99c9080f142ceec47a6e3b31f4d97612057b59", size = 70735781, upload-time = "2026-10-19T23:09:13.479Z" },
     { url = "https://files.pythonhosted.org/packages/f2/7a/e90d6f1dc988b4fd7de331b4d818564577ec5ac8a563c34a51e873e95bd3/livekit_plugins_ai_coustics-0.3.5-cp310-abi3-win_amd64.whl", hash = "sha256:93752673639300dc83f3bcf72d00cb8a8d29682fcb569dab88b8da1039d03be9", size = 70312999, upload-time = "2026-10-19T23:09:18.536Z" },
+]
+
+[[package]]
+name = "livekit-plugins-elevenlabs"
+version = "1.8.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents", extra = ["codecs"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/ea/a94d121ba15aac3411dfc16b5e4eae94f8eaef07f39d25c0e468825b5bd4/livekit_plugins_elevenlabs-1.8.11.tar.gz", hash = "sha256:966e43b55438e015f364adbc41aaaf5fb8747417bff20c50aef1c97438431828", size = 26026, upload-time = "2026-11-05T19:46:10.746Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/ce/bbe55669fa6aa7a7c888a17ccde2813d625ad958e2a219a871e86ffef023/livekit_plugins_elevenlabs-1.8.11-py3-none-any.whl", hash = "sha256:be26cbb3524b7464c35cc2b5ef31604d5ecb6c7445debc5fd8bb4ebd6b20ab8b", size = 27823, upload-time = "2026-11-05T19:46:09.4Z" },
 ]
 
 [[package]]
