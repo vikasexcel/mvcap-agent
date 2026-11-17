@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -5,6 +6,7 @@ import textwrap
 
 from dotenv import load_dotenv
 from google.genai import types as genai_types
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -24,8 +26,10 @@ from livekit.agents import (
 from livekit.plugins import ai_coustics, elevenlabs, google
 
 import people
+from calllog import CallLog
 from dataset import Dataset, Target
 from rules import Outcome, resolve, rule_index
+from speech import speakable
 from store import load_dataset
 from transfer import hang_up, transfer_call
 
@@ -112,9 +116,11 @@ def build_instructions(ds: Dataset) -> str:
         Your job is to work out what the caller needs and call the right tool. The tools speak the
         official MVCAP wording and do the transferring or hanging up themselves.
 
-        - If the caller asks for a person by name, call find_person. If it returns one exact match, call
-          transfer_to_person with that id. If the match is approximate, first confirm the name with
-          the caller ("Did you mean Kevin Reeves?") and transfer only after they say yes. If it returns several, ask the caller which one (use the
+        - If the caller asks for a person by name, call find_person. If it returns one match, call
+          transfer_to_person with that id: it asks the caller to confirm the person by name and title
+          itself, so never ask that yourself. Stay silent and wait for the answer. If the caller says
+          yes, call transfer_to_person again with the same id. If they say no, ask who they meant, then
+          call find_person again. If it returns several matches, ask the caller which one (use the
           titles, or ask for a last name). If it returns none, say you couldn't find that name and ask
           them to repeat it once; after that, call escalate_to_human.
         - For anything else, choose the closest keyword from the list below and call handle_request
@@ -169,21 +175,41 @@ def stt_keyterms(ds: Dataset) -> list[str]:
 
 
 class Receptionist(Agent):
+    log: CallLog | None = None  # set per call; None in the console
+
     def __init__(self, ds: Dataset) -> None:
         super().__init__(
             llm=build_llm(),
             instructions=build_instructions(ds),
         )
         self.ds = ds
+        # The person the caller was asked to confirm, and whether they have answered since.
+        self._confirming: int | None = None
+        self._replied = False
+
+    async def on_user_turn_completed(
+        self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
+    ) -> None:
+        if self._confirming is not None:
+            self._replied = True
 
     async def _say(self, parts: list[str]) -> None:
         text = " ".join(p for p in parts if p)
         if text:
-            await self.session.say(text, allow_interruptions=False)
+            await self.session.say(speakable(text), allow_interruptions=False)
 
-    async def _transfer(self, target: Target) -> None:
+    def _note(self, outcome: str, target: Target | None = None) -> None:
+        if self.log:
+            self.log.finish(
+                outcome, f"{target.kind}:{target.value}" if target else None
+            )
+
+    async def _transfer(self, target: Target, outcome: str = "transferred") -> None:
         result = await transfer_call(self.ds, target)
-        if not result.ok:
+        if result.ok:
+            self._note(outcome, target)
+        else:
+            self._note("transfer_failed", target)
             await self._fail_over(result.reason)
 
     async def _fail_over(self, reason: str | None) -> None:
@@ -191,6 +217,7 @@ class Receptionist(Agent):
         logger.error("transfer failed (%s); failing over", reason)
         human = self.ds.setting("human_fallback_number")
         if human and (await transfer_call(self.ds, Target("phone", human))).ok:
+            self._note("escalated", Target("phone", human))
             return
         await self._say([self.ds.setting("transfer_failed_message", "")])
         await hang_up()
@@ -199,6 +226,7 @@ class Receptionist(Agent):
         """Speak, then transfer or end. Returns None (no model reply) unless the call continues."""
         await self._say(outcome.speak)
         if outcome.then == "end":
+            self._note("ended")
             await hang_up()
             return None
         if outcome.then == "transfer" and outcome.target:
@@ -253,6 +281,8 @@ class Receptionist(Agent):
                     "next": "ask the caller again, then pass one valid answer",
                 }
             )
+        if self.log:
+            self.log.keyword(keyword)
         if outcome.status == "need_answer":
             await self._say(outcome.speak)
             return None  # the question was spoken; wait for the caller
@@ -266,6 +296,7 @@ class Receptionist(Agent):
         Args:
             name: The name as the caller said it, first name, last name, or both.
         """
+        self._confirming = None
         matches = people.search(self.ds, name)
         logger.info("find_person %r -> %d match(es)", name, len(matches))
         return json.dumps(
@@ -286,7 +317,9 @@ class Receptionist(Agent):
     async def transfer_to_person(
         self, context: RunContext, person_id: int
     ) -> str | None:
-        """Transfer the caller to the staff member with this id, as returned by find_person.
+        """Transfer the caller to the staff member with this id, as returned by find_person. The first
+        call asks the caller to confirm the person and waits; call it again with the same id only
+        after the caller says yes.
 
         Args:
             person_id: The id from find_person.
@@ -307,6 +340,16 @@ class Receptionist(Agent):
                     "next": "call escalate_to_human",
                 }
             )
+        # A name is easy to mishear, so the caller always confirms the person first. The wording
+        # and the order are enforced here: a transfer needs a question, then a reply from the caller.
+        if self._confirming != person.id or not self._replied:
+            self._confirming, self._replied = person.id, False
+            title = f", {person.title}" if person.title else ""
+            await self._say([f"Do you want to connect with {person.display}{title}?"])
+            return None
+        self._confirming = None
+        if self.log:
+            self.log.person(person.display)
         await self._say(
             [
                 self.ds.setting("default_transfer_message", ""),
@@ -324,18 +367,37 @@ class Receptionist(Agent):
         human = self.ds.setting("human_fallback_number")
         if not human:
             logger.error("escalate_to_human: human_fallback_number is not configured")
+            self._note("transfer_failed")
             await self._say([self.ds.setting("transfer_failed_message", "")])
             await hang_up()
             return
         await self._say([self.ds.setting("fallback_message", "")])
-        await self._transfer(Target("phone", human))
+        await self._transfer(Target("phone", human), "escalated")
 
     @function_tool
     async def end_call(self, context: RunContext) -> None:
         """End the call when the caller is finished or says goodbye. This tool says goodbye itself."""
         context.disallow_interruptions()
         await self._say([self.ds.setting("goodbye_message", "")])
+        self._note("ended")
         await hang_up()
+
+
+async def start_call_log(ctx: JobContext, receptionist: Receptionist) -> None:
+    """Start the call record when a phone caller is on the line. Console sessions have no caller."""
+    try:
+        caller = await asyncio.wait_for(
+            ctx.wait_for_participant(kind=rtc.ParticipantKind.PARTICIPANT_KIND_SIP),
+            timeout=5,
+        )
+    except TimeoutError:
+        return
+    log = CallLog(
+        caller_id=caller.attributes.get("sip.phoneNumber") or None,
+        room_name=ctx.room.name,
+    )
+    receptionist.log = log
+    ctx.add_shutdown_callback(log.save)
 
 
 server = AgentServer()
@@ -369,8 +431,9 @@ async def my_agent(ctx: JobContext):
         if metrics:
             logger.info("turn metrics role=%s %s", event.item.role, dict(metrics))
 
+    receptionist = Receptionist(ds)
     await session.start(
-        agent=Receptionist(ds),
+        agent=receptionist,
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
@@ -382,6 +445,7 @@ async def my_agent(ctx: JobContext):
     )
 
     await ctx.connect()
+    await start_call_log(ctx, receptionist)
 
     # The greeting is the client's exact wording, so it is spoken, not generated.
     await session.say(ds.setting("greeting"), allow_interruptions=False)
