@@ -279,6 +279,7 @@ insert into public.settings (key, value, notes) values
   ('human_fallback_number', null, 'PENDING CLIENT: E.164 number that rings a human, e.g. +19375551234'),
   ('pbx_main_number', null, 'PENDING CLIENT: main office number in E.164. Extension transfers dial this number, wait pbx_dtmf_pause_seconds, then send the extension as keypad tones'),
   ('pbx_dtmf_pause_seconds', '3'::jsonb, 'Seconds to wait after the main number answers before sending the extension'),
+  ('transfer_mode', '"bridge"'::jsonb, 'bridge | blind | hybrid. blind hands the caller over and the agent leaves (an extension rides as post-dial digits, which the provider may ignore); hybrid = blind for phone numbers, bridge for extensions'),
   ('transfer_override_number', null, 'TEST SWITCH: when set (E.164), every transfer rings this number instead of the real target. Leave empty in production'),
   ('office_hours_statement', '"Hours of operation are Monday through Friday, 8:00 a.m. to 4:30 p.m., closed for lunch from 12:00 p.m. to 1:00 p.m. Offices are closed for holidays. Visiting hours vary by location."'::jsonb, 'Script wording, spoken by the model only when a caller asks about hours'),
   ('goodbye_message', '"Thank you for calling Miami Valley Community Action Partnership. Goodbye."'::jsonb, 'Drafted by us (the script has none). Spoken when the caller is finished. CONFIRM with client.'),

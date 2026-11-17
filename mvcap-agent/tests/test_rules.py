@@ -324,3 +324,33 @@ def test_direct_phone_is_dialed_without_tones():
         "+19375550123",
         None,
     )
+
+
+def test_transfer_mode_bridge_is_the_default():
+    from dataset import Target
+    from transfer import transfer_mode
+
+    assert transfer_mode(_plan_ds(), Target("extension", "157")) == "bridge"
+    assert transfer_mode(_plan_ds(), Target("phone", "+19375550123")) == "bridge"
+
+
+def test_transfer_mode_blind_and_hybrid():
+    from dataset import Target
+    from transfer import transfer_mode
+
+    ext, phone = Target("extension", "157"), Target("phone", "+19375550123")
+    blind = _plan_ds(transfer_mode="blind")
+    assert transfer_mode(blind, ext) == transfer_mode(blind, phone) == "blind"
+    hybrid = _plan_ds(transfer_mode="hybrid")
+    assert transfer_mode(hybrid, ext) == "bridge"
+    assert transfer_mode(hybrid, phone) == "blind"
+
+
+def test_refer_address_carries_extension_as_post_dial_digits():
+    from dataset import Target
+    from transfer import refer_uri
+
+    ds = _plan_ds(pbx_main_number="+15555550100", pbx_dtmf_pause_seconds=3)
+    assert refer_uri(ds, Target("extension", "157")) == "tel:+15555550100;postd=ppp157"
+    assert refer_uri(ds, Target("phone", "+19375550123")) == "tel:+19375550123"
+    assert refer_uri(_plan_ds(), Target("extension", "157")) is None

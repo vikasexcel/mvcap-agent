@@ -3285,6 +3285,11 @@
    "notes": "Seconds to wait after the main number answers before sending the extension"
   },
   {
+   "key": "transfer_mode",
+   "value": "bridge",
+   "notes": "bridge | blind | hybrid. blind hands the caller over and the agent leaves (an extension rides as post-dial digits, which the provider may ignore); hybrid = blind for phone numbers, bridge for extensions"
+  },
+  {
    "key": "transfer_override_number",
    "value": null,
    "notes": "TEST SWITCH: when set (E.164), every transfer rings this number instead of the real target. Leave empty in production"

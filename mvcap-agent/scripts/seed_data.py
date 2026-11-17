@@ -739,6 +739,12 @@ SETTINGS = {
         3,
         "Seconds to wait after the main number answers before sending the extension",
     ),
+    "transfer_mode": (
+        "bridge",
+        "bridge | blind | hybrid. blind hands the caller over and the agent leaves (an extension "
+        "rides as post-dial digits, which the provider may ignore); hybrid = blind for phone "
+        "numbers, bridge for extensions",
+    ),
     "transfer_override_number": (
         None,
         "TEST SWITCH: when set (E.164), every transfer rings this number instead of the real "
